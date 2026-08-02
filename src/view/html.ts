@@ -1,5 +1,4 @@
 import {
-  ALLOWED_ORIGIN,
   EMBED_API_SCRIPT_URL,
   UI_PROTOCOL_VERSION,
   embedUrlFor,
@@ -73,14 +72,11 @@ export function renderProbeHtml(
     resourceUri: probe.resourceUri,
     embedMode: probe.embedMode,
     declaredCsp: probe.csp ?? null,
-    defaultVizUrl,
     defaultEmbedUrl: embedUrlFor(probe.embedMode, defaultVizUrl),
     embedApiScriptUrl: EMBED_API_SCRIPT_URL,
-    allowedOrigin: ALLOWED_ORIGIN,
     protocolVersion: UI_PROTOCOL_VERSION,
     serverVersion,
     expectation: probe.expectation,
-    question: probe.question,
   };
 
   return `<!DOCTYPE html>

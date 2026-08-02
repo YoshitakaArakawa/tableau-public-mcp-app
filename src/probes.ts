@@ -108,38 +108,6 @@ export function getProbeByResourceUri(uri: string): ProbeDef {
   return probe;
 }
 
-/**
- * Validate and normalize a viz URL.
- *
- * Rejects anything outside {@link ALLOWED_ORIGIN}: a different host would not be
- * covered by the declared CSP, which would make the measurement meaningless.
- * Drops a trailing `#<digits>` fragment (Tableau Public appends one when you copy
- * a link from the site) and any existing query string, so every probe starts from
- * the same shape.
- */
-export function normalizeVizUrl(raw?: string): string {
-  if (!raw || raw.trim() === "") return DEFAULT_VIZ_URL;
-
-  let parsed: URL;
-  try {
-    parsed = new URL(raw.trim());
-  } catch {
-    throw new Error(`vizUrl is not a valid URL: ${raw}`);
-  }
-
-  if (parsed.origin !== ALLOWED_ORIGIN) {
-    throw new Error(
-      `vizUrl must be on ${ALLOWED_ORIGIN} (got ${parsed.origin}). ` +
-        "Other hosts would not match the CSP this server declares.",
-    );
-  }
-
-  parsed.search = "";
-  if (/^#\d+$/.test(parsed.hash)) parsed.hash = "";
-
-  return parsed.toString().replace(/\/$/, "");
-}
-
 /** iframe embedding needs both `:embed=true` and `:showVizHome=no`. */
 export function toIframeUrl(vizUrl: string): string {
   return `${vizUrl}?:embed=true&:showVizHome=no`;

@@ -58,9 +58,9 @@ node dist/index.js --transport http --port 3000
 
 ### 埋め込み対象 URL
 
-既定は `https://public.tableau.com/views/DeveloperSuperstore/Overview`。`vizUrl` 引数で差し替えられるが、`https://public.tableau.com` 以外は拒否する（CSP 宣言と食い違うため）。
+`https://public.tableau.com/views/DeveloperSuperstore/Overview` に固定。差し替え引数は置いていない。viz の中身は測定対象ではなく、引数にすると URL 検証・正規化・tool-input のタイミングという測定外の変数が増えるため。
 
-- iframe: `?:embed=true&:showVizHome=no` を付与、末尾の `#<数字>` は除去
+- iframe: `?:embed=true&:showVizHome=no` を付与
 - 画像: viz パスに `.png` を付与
 - Embedding API: パラメータなしの素の viz URL
 

@@ -290,9 +290,8 @@ export const DIAGNOSTICS_SCRIPT = String.raw`
     error: "未発生",
     timedOut: false,
     url: CFG.defaultEmbedUrl,
-    source: "既定 viz",
     buildError: null,
-    toolInput: "計測前"
+    toolInput: "計測中"
   };
 
   function renderEmbed() {
@@ -316,7 +315,7 @@ export const DIAGNOSTICS_SCRIPT = String.raw`
 
     fill(byId("t-embed"), [
       row("埋め込み方式", CFG.embedMode, null),
-      row("対象 URL", embedState.url + "（" + embedState.source + "）", null),
+      row("対象 URL", embedState.url, null),
       row("判定", summary, verdict),
       row("onload", embedState.load, null),
       row("onerror", embedState.error, null),
@@ -330,22 +329,6 @@ export const DIAGNOSTICS_SCRIPT = String.raw`
     ]);
   }
 
-  function normalizeVizUrl(raw) {
-    var parsed = new URL(raw);
-    if (parsed.origin !== CFG.allowedOrigin) {
-      throw new Error("vizUrl must be on " + CFG.allowedOrigin + " (got " + parsed.origin + ")");
-    }
-    parsed.search = "";
-    if (/^#\d+$/.test(parsed.hash)) parsed.hash = "";
-    return parsed.toString().replace(/\/$/, "");
-  }
-
-  function embedUrlFor(vizUrl) {
-    if (CFG.embedMode === "image") return vizUrl + ".png?:showVizHome=no";
-    if (CFG.embedMode === "embedapi") return vizUrl;
-    return vizUrl + "?:embed=true&:showVizHome=no";
-  }
-
   function armTimeout() {
     setTimeout(function () {
       embedState.timedOut = true;
@@ -353,14 +336,9 @@ export const DIAGNOSTICS_SCRIPT = String.raw`
     }, 5000);
   }
 
-  function buildEmbed(vizUrl, source) {
+  function buildEmbed() {
     var host = byId("embed-host");
     try {
-      if (vizUrl) {
-        embedState.url = embedUrlFor(normalizeVizUrl(vizUrl));
-        embedState.source = source;
-      }
-
       if (CFG.embedMode === "image") {
         var img = el("img", { src: embedState.url, alt: "Tableau Public viz snapshot" });
         img.onload = function () { embedState.load = "発火"; renderEmbed(); };
@@ -397,7 +375,6 @@ export const DIAGNOSTICS_SCRIPT = String.raw`
 
   var nextId = 1;
   var pending = {};
-  var toolInputVizUrl = null;
   var toolInputSeen = false;
 
   function send(message) {
@@ -435,12 +412,11 @@ export const DIAGNOSTICS_SCRIPT = String.raw`
       return;
     }
 
+    // Receipt is recorded as a measurement point; the payload is not used.
     if (msg.method === "ui/notifications/tool-input") {
       toolInputSeen = true;
-      var args = (msg.params && msg.params.arguments) || {};
-      if (typeof args.vizUrl === "string" && args.vizUrl.trim() !== "") {
-        toolInputVizUrl = args.vizUrl.trim();
-      }
+      embedState.toolInput = "受信";
+      renderEmbed();
     }
   });
 
@@ -485,13 +461,16 @@ export const DIAGNOSTICS_SCRIPT = String.raw`
       renderCsp(undefined, note);
     }
 
-    // Give the host a moment to deliver tool-input, which may carry a custom vizUrl.
+    // The embed does not depend on tool-input, so it starts immediately.
+    // The spec says the host must send tool-input after initialized; give it 3s
+    // before recording "not received".
+    buildEmbed();
     setTimeout(function () {
-      embedState.toolInput = toolInputSeen
-        ? "受信" + (toolInputVizUrl ? "（vizUrl あり）" : "（vizUrl なし）")
-        : "未受信（ホストが送っていない）";
-      buildEmbed(toolInputVizUrl, "tool-input の vizUrl");
-    }, 2000);
+      if (!toolInputSeen) {
+        embedState.toolInput = "未受信（ホストが送っていない）";
+        renderEmbed();
+      }
+    }, 3000);
 
     observeSize();
   }

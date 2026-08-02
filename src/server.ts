@@ -5,29 +5,22 @@ import {
   registerAppResource,
   registerAppTool,
 } from "@modelcontextprotocol/ext-apps/server";
-import { z } from "zod";
 
-import {
-  DEFAULT_VIZ_URL,
-  PROBES,
-  embedUrlFor,
-  normalizeVizUrl,
-  type ProbeDef,
-} from "./probes.js";
+import { DEFAULT_VIZ_URL, PROBES, embedUrlFor, type ProbeDef } from "./probes.js";
 import { renderProbeHtml } from "./view/html.js";
 
 export const SERVER_NAME = "mcp-apps-iframe-probe";
 export const SERVER_VERSION = "0.1.0";
 
 /** Text fallback, so a host without MCP Apps support still shows something useful. */
-function textReport(probe: ProbeDef, vizUrl: string): string {
+function textReport(probe: ProbeDef): string {
   return [
     `probe ${probe.id} — ${probe.title}`,
     `resource: ${probe.resourceUri}`,
     `declared csp: ${probe.csp ? JSON.stringify(probe.csp) : "(none)"}`,
     `embed mode: ${probe.embedMode}`,
-    `viz url: ${vizUrl}`,
-    `embed url: ${embedUrlFor(probe.embedMode, vizUrl)}`,
+    `viz url: ${DEFAULT_VIZ_URL}`,
+    `embed url: ${embedUrlFor(probe.embedMode, DEFAULT_VIZ_URL)}`,
     `expectation: ${probe.expectation}`,
     `what it tells us: ${probe.question}`,
     "",
@@ -75,26 +68,9 @@ function registerProbe(server: McpServer, probe: ProbeDef): void {
       description:
         `MCP Apps の iframe 埋め込み対応状況を調べる診断ビューを表示する（プローブ ${probe.id}: ${probe.title}）。` +
         probe.question,
-      inputSchema: {
-        vizUrl: z
-          .string()
-          .optional()
-          .describe("public.tableau.com の viz URL（省略時は既定 viz）"),
-      },
       _meta: { ui: { resourceUri: probe.resourceUri, visibility: ["model", "app"] } },
     },
-    async ({ vizUrl }) => {
-      let resolved: string;
-      try {
-        resolved = normalizeVizUrl(vizUrl);
-      } catch (error) {
-        return {
-          isError: true,
-          content: [{ type: "text", text: String((error as Error).message ?? error) }],
-        };
-      }
-      return { content: [{ type: "text", text: textReport(probe, resolved) }] };
-    },
+    async () => ({ content: [{ type: "text", text: textReport(probe) }] }),
   );
 }
 
