@@ -1,0 +1,9 @@
+node_modules
+dist
+work
+results
+.git
+.gitignore
+*.log
+README.md
+fly.toml
