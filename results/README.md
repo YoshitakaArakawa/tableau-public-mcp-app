@@ -9,9 +9,9 @@
 | ホスト | トランスポート | 承認 | 読込 | 描画 | 操作 | 詳細 |
 |---|---|---|---|---|---|---|
 | MCPJam Inspector 2.32.0 | http | no（`{}`） | yes | yes | yes | [mcpjam-http.md](mcpjam-http.md) |
-| Claude Desktop | stdio | | | | | |
+| Claude Desktop (Claude Code) | stdio | **承認するが CSP 未反映** | no（frame-src 違反） | no | no | 記録中（ウィジェット計測は完了、ファイル未作成） |
+| ChatGPT Plus | http | 観測不可（CSP オフ表示） | yes | yes | yes | [chatgpt-http.md](chatgpt-http.md)（シンプル版で計測） |
 | claude.ai | http | | | | | |
-| ChatGPT / Apps SDK | | | | | | |
 | VS Code | | | | | | |
 
 ## 全プローブ横断
