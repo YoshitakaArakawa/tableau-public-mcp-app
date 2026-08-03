@@ -35,6 +35,18 @@ if (viz === null) {
   let currentHeightPx: number | undefined;
 
   const applyToolData = (data: ToolData): void => {
+    // Height FIRST: `<tableau-viz>` sizes its internal iframe from the container at the moment
+    // `src` is set and does not follow later container resizes (measured 20260803: src-then-height
+    // left the viz at the old 480px inside a 1200px card). ChatGPT sizes the inline card to the
+    // widget's content height, so this is what makes the card grow.
+    let heightChanged = false;
+
+    if (data.heightPx !== undefined && wrap !== null && data.heightPx !== currentHeightPx) {
+      currentHeightPx = data.heightPx;
+      wrap.style.height = `${data.heightPx}px`;
+      heightChanged = true;
+    }
+
     if (data.vizUrl !== undefined) {
       if (!data.vizUrl.startsWith(VIZ_URL_PREFIX)) {
         console.warn("[tableau-public-mcp-app] ignoring non-Tableau-Public viz url", data.vizUrl);
@@ -43,14 +55,14 @@ if (viz === null) {
         // The custom element observes `src`; swapping it reloads the viz and re-fires
         // `firstinteractive`, which the bridge treats as a fresh capture trigger.
         viz.setAttribute("src", data.vizUrl);
+        heightChanged = false;
       }
     }
 
-    // An explicit height replaces the fill-the-frame default; ChatGPT sizes the inline card to
-    // the widget's content height (measured 20260803: 1200 and 3000 both honored 1:1).
-    if (data.heightPx !== undefined && wrap !== null) {
-      currentHeightPx = data.heightPx;
-      wrap.style.height = `${data.heightPx}px`;
+    // Height changed under an already-loaded viz: force a re-render, since the embedded iframe
+    // keeps its creation-time size otherwise.
+    if (heightChanged && currentVizUrl !== undefined && viz.getAttribute("src") !== null) {
+      viz.setAttribute("src", currentVizUrl);
     }
   };
 
@@ -80,7 +92,11 @@ if (viz === null) {
     },
   });
 
-  startDiagnostics(() => resolvedHost);
+  // Measurement aid, opt-in only: hosted widgets never carry query params, so the overlay is
+  // invisible in normal use and available on the standalone page via /widget?debug&viz=...
+  if (new URLSearchParams(window.location.search).has("debug")) {
+    startDiagnostics(() => resolvedHost);
+  }
 
   void connectHost({
     appName: config.name ?? "tableau-public-mcp-app",
@@ -91,12 +107,17 @@ if (viz === null) {
     resolvedHost = host;
     console.info(`[tableau-public-mcp-app] host channel: ${host.kind}`);
 
-    // Standalone `/widget` debugging (no host): allow ?viz=<public.tableau.com/views/...> in the
-    // page URL. Hosted widgets get their URL from the host, never from the page URL.
+    // Standalone `/widget` debugging (no host): allow ?viz=<public.tableau.com/views/...> and
+    // ?height=<px> in the page URL. Hosted widgets get both from the host, never from the page URL.
     if (currentVizUrl === undefined) {
-      const standaloneUrl = new URLSearchParams(window.location.search).get("viz");
+      const params = new URLSearchParams(window.location.search);
+      const standaloneUrl = params.get("viz");
       if (standaloneUrl !== null) {
-        applyToolData({ vizUrl: standaloneUrl });
+        const heightParam = Number(params.get("height"));
+        applyToolData({
+          vizUrl: standaloneUrl,
+          ...(Number.isFinite(heightParam) && heightParam > 0 && { heightPx: heightParam }),
+        });
       }
     }
 
