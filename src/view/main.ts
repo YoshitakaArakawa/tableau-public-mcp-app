@@ -66,6 +66,35 @@ if (viz === null) {
     }
   };
 
+  // The Embedding API sizes its internal iframe from the VIEWPORT, not from its container
+  // (measured 20260803: window 480 / container 950 → iframe style.height 480px). In ChatGPT the
+  // widget window starts at the default 480px and grows to the content height afterwards, so the
+  // viz iframe gets stuck at 480 with an internal scrollbar. Overriding the iframe's height
+  // through the open shadow root keeps it in step with the wrapper without a reload.
+  const syncVizFrameHeight = (): void => {
+    if (wrap === null) {
+      return;
+    }
+
+    const iframe = viz.shadowRoot?.querySelector("iframe");
+    if (iframe instanceof HTMLIFrameElement) {
+      const target = Math.round(wrap.getBoundingClientRect().height);
+      if (target > 0 && Math.abs(iframe.getBoundingClientRect().height - target) > 1) {
+        iframe.style.height = `${target}px`;
+      }
+    }
+  };
+
+  // The iframe exists only after the viz renders; the window resize fires when the host grows
+  // the widget frame. Both are cheap, so sync on each plus a short settle delay.
+  viz.addEventListener("firstinteractive", () => {
+    syncVizFrameHeight();
+    setTimeout(syncVizFrameHeight, 250);
+  });
+  window.addEventListener("resize", () => {
+    setTimeout(syncVizFrameHeight, 0);
+  });
+
   // Latest-wins buffer for pushes that happen before the host channel resolves.
   let resolvedHost: HostChannel | undefined;
   let bufferedPayload: VizStatePayload | undefined;
