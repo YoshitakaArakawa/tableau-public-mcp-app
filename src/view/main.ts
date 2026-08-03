@@ -13,17 +13,10 @@ import type { VizStatePayload } from "./payload.js";
 import { startVizStateBridge } from "./vizStateBridge.js";
 
 /** Injected by the server into the page before this bundle runs. */
-type AppConfig = { name?: string; version?: string; defaultVizUrl?: string };
+type AppConfig = { name?: string; version?: string };
 
 /** Only Tableau Public view URLs are ever loaded, no matter what a tool result claims. */
 const VIZ_URL_PREFIX = "https://public.tableau.com/views/";
-
-/**
- * Grace period after the host handshake settles before falling back to the default viz. A host
- * that has a URL for us normally delivers it with (or before) the handshake; the fallback exists
- * for the standalone `/widget` debug page and hosts that render the widget without a tool result.
- */
-const VIZ_URL_FALLBACK_DELAY_MS = 3_000;
 
 const config: AppConfig =
   (window as { __APP_CONFIG?: AppConfig }).__APP_CONFIG ?? {};
@@ -34,10 +27,12 @@ const wrap = document.getElementById("wrap");
 if (viz === null) {
   console.error("[tableau-public-mcp-app] no #viz element in the widget HTML");
 } else {
-  // No initial src: loading a default viz just to swap it out moments later wastes a full viz
-  // load and flashes an unrelated dashboard at the user. The element stays empty until a URL
-  // arrives from the host (or the fallback below gives up waiting).
+  // No initial src and NO default-viz fallback: the element stays empty until a URL arrives from
+  // the host — a fresh tool result (`toolOutput` / SEP-1865 ontoolresult) or, on a re-rendered
+  // widget, the `restore` block of the previously saved widget state. Showing an unrelated
+  // default dashboard instead of the view the user had open is worse than showing nothing.
   let currentVizUrl: string | undefined;
+  let currentHeightPx: number | undefined;
 
   const applyToolData = (data: ToolData): void => {
     if (data.vizUrl !== undefined) {
@@ -51,9 +46,10 @@ if (viz === null) {
       }
     }
 
-    // Size experiment: an explicit height replaces the fill-the-frame default, to measure whether
-    // the host grows the widget frame to content or clips/scrolls it.
+    // An explicit height replaces the fill-the-frame default; ChatGPT sizes the inline card to
+    // the widget's content height (measured 20260803: 1200 and 3000 both honored 1:1).
     if (data.heightPx !== undefined && wrap !== null) {
+      currentHeightPx = data.heightPx;
       wrap.style.height = `${data.heightPx}px`;
     }
   };
@@ -90,17 +86,18 @@ if (viz === null) {
     appName: config.name ?? "tableau-public-mcp-app",
     appVersion: config.version ?? "0.0.0",
     onToolData: applyToolData,
+    getRestoreState: () => ({ vizUrl: currentVizUrl, heightPx: currentHeightPx }),
   }).then(async (host) => {
     resolvedHost = host;
     console.info(`[tableau-public-mcp-app] host channel: ${host.kind}`);
 
-    // The handshake settled without a viz URL: give a late tool result a moment, then fall back.
-    if (currentVizUrl === undefined && config.defaultVizUrl !== undefined) {
-      setTimeout(() => {
-        if (currentVizUrl === undefined && config.defaultVizUrl !== undefined) {
-          applyToolData({ vizUrl: config.defaultVizUrl });
-        }
-      }, VIZ_URL_FALLBACK_DELAY_MS);
+    // Standalone `/widget` debugging (no host): allow ?viz=<public.tableau.com/views/...> in the
+    // page URL. Hosted widgets get their URL from the host, never from the page URL.
+    if (currentVizUrl === undefined) {
+      const standaloneUrl = new URLSearchParams(window.location.search).get("viz");
+      if (standaloneUrl !== null) {
+        applyToolData({ vizUrl: standaloneUrl });
+      }
     }
 
     if (bufferedPayload !== undefined) {

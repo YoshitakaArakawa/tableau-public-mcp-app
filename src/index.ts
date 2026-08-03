@@ -77,7 +77,6 @@ function escapeInlineScript(js: string): string {
 const APP_CONFIG_JSON = JSON.stringify({
   name: APP_NAME,
   version: APP_VERSION,
-  defaultVizUrl: DEFAULT_VIZ_URL,
 });
 
 const HTML = `<!DOCTYPE html>

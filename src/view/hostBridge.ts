@@ -54,12 +54,19 @@ export type ConnectHostOptions = {
   appVersion: string;
   /** Called whenever the host delivers a tool result with widget data. May fire more than once. */
   onToolData: (data: ToolData) => void;
+  /**
+   * What the widget currently shows. Embedded in every widget-state push so that a re-rendered
+   * widget (ChatGPT reloads do NOT re-deliver `toolOutput`, measured 20260803) can restore the
+   * same view instead of coming up empty.
+   */
+  getRestoreState?: () => ToolData;
   connectTimeoutMs?: number;
 };
 
 /** The subset of the ChatGPT Apps SDK global this file touches. */
 type OpenAiGlobal = {
   toolOutput?: unknown;
+  widgetState?: unknown;
   setWidgetState?: (state: unknown) => Promise<void> | void;
   requestDisplayMode?: (args: { mode: string }) => Promise<unknown>;
 };
@@ -83,6 +90,15 @@ function readToolData(container: unknown): ToolData | undefined {
   return data.vizUrl !== undefined || data.heightPx !== undefined ? data : undefined;
 }
 
+/** Reads the `restore` block a previous `setWidgetState` push left behind. */
+function readRestoreData(widgetState: unknown): ToolData | undefined {
+  if (typeof widgetState !== "object" || widgetState === null) {
+    return undefined;
+  }
+
+  return readToolData((widgetState as { restore?: unknown }).restore);
+}
+
 /**
  * Connects to whichever host dialect is present. Resolves to a `none` channel when neither
  * responds, so the caller can wire the bridge unconditionally.
@@ -97,15 +113,23 @@ export async function connectHost(options: ConnectHostOptions): Promise<HostChan
   return connectExtApps(options);
 }
 
+/** Headroom for the `restore` block and JSON framing around the budgeted vizState. */
+const RESTORE_MARGIN_BYTES = 512;
+
 function connectOpenAi(openai: OpenAiGlobal, options: ConnectHostOptions): HostChannel {
-  const initialData = readToolData(openai.toolOutput);
+  // A fresh tool call wins; a re-rendered widget (no toolOutput) falls back to the state its
+  // previous incarnation saved.
+  const readCurrent = (): ToolData | undefined =>
+    readToolData(openai.toolOutput) ?? readRestoreData(openai.widgetState);
+
+  const initialData = readCurrent();
   if (initialData !== undefined) {
     options.onToolData(initialData);
   }
 
-  // ChatGPT re-injects globals (including a late toolOutput) through this window event.
+  // ChatGPT re-injects globals (including a late toolOutput/widgetState) through this event.
   window.addEventListener("openai:set_globals", () => {
-    const data = readToolData(openai.toolOutput);
+    const data = readCurrent();
     if (data !== undefined) {
       options.onToolData(data);
     }
@@ -115,9 +139,13 @@ function connectOpenAi(openai: OpenAiGlobal, options: ConnectHostOptions): HostC
     kind: "openai",
     pushState: async (payload) => {
       try {
-        const { text } = fitPayloadToBudget(payload, OPENAI_STATE_BUDGET_BYTES - PREAMBLE_BYTES);
+        const { text } = fitPayloadToBudget(
+          payload,
+          OPENAI_STATE_BUDGET_BYTES - PREAMBLE_BYTES - RESTORE_MARGIN_BYTES,
+        );
         await openai.setWidgetState?.({
           note: PUSH_PREAMBLE,
+          restore: options.getRestoreState?.(),
           vizState: JSON.parse(text) as unknown,
         });
       } catch (error) {

@@ -22,6 +22,19 @@ type DiagSnapshot = {
   lastDisplayModeResult?: unknown;
 };
 
+/** Bounded single-line JSON for the overlay; `undefined` stays visible as the literal string. */
+function truncateJson(value: unknown, maxLength = 400): string {
+  if (value === undefined) {
+    return "undefined";
+  }
+  try {
+    const text = JSON.stringify(value);
+    return text.length > maxLength ? `${text.slice(0, maxLength)}…(${text.length} chars)` : text;
+  } catch {
+    return "(unserializable)";
+  }
+}
+
 export function startDiagnostics(getHost: () => HostChannel | undefined): void {
   const overlay = document.createElement("div");
   overlay.style.cssText =
@@ -69,6 +82,13 @@ export function startDiagnostics(getHost: () => HostChannel | undefined): void {
         ? `openai ${JSON.stringify(diag.openaiSizeInfo)}\nkeys: ${diag.openaiKeys.join(",")}`
         : "openai absent",
     ];
+
+    // Reload-restore evidence: what the host re-injects into a re-rendered widget. `toolOutput`
+    // carries the tool result on first render; `widgetState` is what setWidgetState persisted.
+    if (openai) {
+      lines.push(`toolOutput: ${truncateJson(openai.toolOutput)}`);
+      lines.push(`widgetState: ${truncateJson(openai.widgetState)}`);
+    }
     if (diag.lastDisplayModeResult !== undefined) {
       lines.push(`displayMode result: ${JSON.stringify(diag.lastDisplayModeResult)}`);
     }
