@@ -1,15 +1,16 @@
 {
   "name": "tableau-public-mcp-app",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Minimal MCP Apps server that embeds a Tableau Public viz",
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "dev": "tsx src/index.ts",
+    "build:view": "node scripts/build-view.mjs",
+    "build": "npm run build:view && tsc -p tsconfig.json",
+    "dev": "npm run build:view && tsx src/index.ts",
     "start": "node dist/index.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "npm run build:view && tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@modelcontextprotocol/ext-apps": "^1.7.5",
@@ -22,6 +23,7 @@
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
     "@types/node": "^22.15.3",
+    "esbuild": "^0.25.0",
     "tsx": "^4.20.3",
     "typescript": "^5.8.3"
   },

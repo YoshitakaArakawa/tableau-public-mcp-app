@@ -1,15 +1,24 @@
 # tableau-public-mcp-app
 
-Tableau Public の viz をチャット内にインライン表示する、最小構成の MCP Apps サーバー。
+Tableau Public の viz をチャット内にインライン表示し、**ユーザーの操作状態をモデルに共有する** MCP Apps サーバー。
 
-ツールは `show_viz` 1本。呼び出すと、Tableau Public のサンプル viz（Developer Superstore）を全面 iframe で埋め込んだウィジェットが描画される。
+ツールは `show_viz` 1本。`path`（`WorkbookName/ViewName` または public.tableau.com の /views/ URL、省略可）で指定した viz を、Embedding API v3 の `<tableau-viz>` で全面埋め込みしたウィジェットが描画される。Tableau Public は匿名アクセスなので、JWT・Connected App 等の認証層は一切ない。
+
+## Viz 状態スナップショット
+
+ユーザーが viz を操作する（フィルター変更・マーク選択など）と、ウィジェットが Embedding API で現在の状態を読み取り、スナップショットとしてホストへ push する。モデルは「いま画面に出ている数字」を再クエリなしで参照できる。
+
+- 内容: フィルター（categorical / range / relative-date、appliedTo 付き）、パラメーター、選択マーク、アクティブシート、サマリーデータ（1シート・上限200行）
+- 経路: SEP-1865 ホストは `updateModelContext`、ChatGPT は `setWidgetState`。どちらも無いホストでは viz 表示だけが動く
+- 挙動: イベントを 2 秒 debounce して1回のキャプチャに集約。Embedding API 呼び出しは直列 + タイムアウト付き（ハングした postMessage チャネルは再起不能のため）。バイト予算に収まるまで段階的に間引く
+- 実装は [src/view/](src/view/) 配下。キャプチャパイプラインは tableau-mcp-eas-auth フォークの vizState モジュールの移植（Tableau Public 向けに datasource 参照を削除）
 
 メタデータは2方言を併記している。
 
 - 標準（SEP-1865）: `_meta.ui.resourceUri` / `_meta.ui.csp.frameDomains`
 - OpenAI legacy: `openai/outputTemplate` / `openai/widgetCSP.frame_domains`
 
-これにより Claude 系ホストと ChatGPT の両方で同じサーバーがそのまま動く。ChatGPT Plus（開発者モードのカスタムコネクタ、CSP オフ表示）で描画・ツールチップ操作まで動作確認済み。
+これにより Claude 系ホストと ChatGPT の両方で同じサーバーがそのまま動く。
 
 ## 起動
 
@@ -19,6 +28,8 @@ npm start
 ```
 
 HTTP のみ（`/mcp` にマウント、`/health` で稼働確認）。Web ホストから接続する用途なので stdio は持たない。ポートは `PORT`（既定 3000）。
+
+`npm run build` はウィジェット側コード（`src/view/`）を esbuild で単一バンドルに固めて `src/generated/viewBundle.ts` を生成し、その後サーバーを tsc でビルドする。`/widget` で ウィジェット HTML を素のブラウザでも開ける（ホスト無しの動作確認用。最後のスナップショットが `window.__LAST_VIZ_STATE` で見える）。
 
 ## デプロイ (Fly.io)
 
