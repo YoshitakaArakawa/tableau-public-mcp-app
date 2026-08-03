@@ -1,6 +1,7 @@
 node_modules/
 dist/
 src/generated/
+fly.toml
 *.log
 .env
 .env.*

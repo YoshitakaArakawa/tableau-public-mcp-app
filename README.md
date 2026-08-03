@@ -21,7 +21,7 @@ Tableau Public の viz をチャット内にインライン表示し、**ユー�
 - カードの高さは**ウィジェットのコンテンツ高に 1:1 で追従**する。既定 480px は「コンテンツが `100vh` で枠を埋める」場合の平衡値で、コンテンツを 1200px / 3000px にするとカードもそのまま 1200 / 3000px になった(上限は未到達)
 - `window.openai` には `notifyIntrinsicHeight` / `notifyIntrinsicWidth` / `requestDisplayMode` があり、`maxHeight` / `maxWidth` キーは存在するが inline 時は未配信(undefined)だった
 - `requestDisplayMode({mode:"fullscreen"})` は許可され、viewport 767×480 → 1354×934 に拡大。固定サイズのダッシュボードは fullscreen でも元サイズのまま(余白が広がるだけ)
-- ChatGPT はツール定義(スキーマ)もウィジェット HTML(リソース)もコネクタ登録時にキャッシュし、再接続では更新しない。サーバー側の変更を確実に反映するにはコネクタの削除→新規作成が必要(更新タイミングの正確な規則は未確定)
+- ChatGPT はツール定義(スキーマ)もウィジェット HTML(リソース)もコネクタ登録時にキャッシュし、再接続では更新しない。サーバー側の変更はコネクタ詳細(開発者モード)の「情報」セクションにある「更新する」ボタンで再取得できる
 - ChatGPT はページリロード時にツール結果(`toolOutput`)をウィジェットへ再配信しない。リロード後の表示復元は `setWidgetState` に保存した `restore` ブロック(viz URL・高さ)をウィジェットが読み戻すことで行う
 
 ダッシュボード設計の目安: 幅 750px 以下の固定または「自動」サイズ。高さはウィジェットが自動調整する(下記)。
@@ -46,30 +46,12 @@ HTTP のみ（`/mcp` にマウント、`/health` で稼働確認）。Web ホス
 
 `npm run build` はウィジェット側コード（`src/view/`）を esbuild で単一バンドルに固めて `src/generated/viewBundle.ts` を生成し、その後サーバーを tsc でビルドする。`/widget?viz=https://public.tableau.com/views/...` で ウィジェット HTML を素のブラウザでも開ける（ホスト無しの動作確認用。最後のスナップショットが `window.__LAST_VIZ_STATE` で見える）。ホストから viz URL が届かない限りウィジェットは何も表示しない — デフォルト viz へのフォールバックは意図的に置いていない。
 
-## デプロイ (Fly.io)
-
-```bash
-fly deploy --ha=false
-```
-
-`--ha=false` は必須。セッションをメモリで保持しているため、マシンが2台あると initialize と後続リクエストが別マシンに散って 400 になる。
-
-エンドポイント: `https://tableau-public-mcp-app.fly.dev/mcp`
-
 ## ホストへの接続
 
-- **ChatGPT**: Settings → Apps & Connectors → 開発者モードでカスタムコネクタを追加（認証なし）。未レビューのコネクタは「CSP オフ」表示で動作する
-- **Claude / MCPJam 等**: Streamable HTTP のリモート MCP サーバーとして上記 URL を登録
+サーバーを公開 HTTPS で動かし、`https://<ホスト>/mcp` を登録する。セッションをメモリで保持しているため、複数インスタンスに分散させると initialize と後続リクエストが別インスタンスに散って 400 になる — 単一インスタンスで動かすこと。
 
-## archive/
-
-`archive/iframe-probe/` に、このリポジトリの前身である **MCP Apps iframe 対応状況の調査サーバー**一式（ソース・検証手順・ホスト別の実測結果）を保存している。主な調査結果:
-
-- MCPJam Inspector 2.32.0: CSP を強制しない（宣言に関係なく外部 iframe が通る）
-- Claude Desktop: `frameDomains` を承認レスポンスに載せるが、実際の CSP に反映せず iframe をブロックする（仕様乖離）
-- ChatGPT Plus: CSP オフ表示の下で外部 iframe が完全動作
-
-詳細は [archive/iframe-probe/README.md](archive/iframe-probe/README.md) と [archive/iframe-probe/results/README.md](archive/iframe-probe/results/README.md) を参照。
+- **ChatGPT**: Settings → Apps & Connectors → 開発者モードでカスタムコネクタを追加（認証なし）。未レビューのコネクタは「CSP オフ」表示で動作する。ツール定義・ウィジェット HTML はコネクタ登録時にキャッシュされるので、サーバー更新後はコネクタ詳細の「更新する」で再取得する
+- **Claude / MCPJam 等**: Streamable HTTP のリモート MCP サーバーとして同じ URL を登録
 
 ## ライセンス
 
