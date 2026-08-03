@@ -75,8 +75,21 @@ export type TableauWorksheet = {
   ) => Promise<TableauDataTableReader>;
 };
 
+/**
+ * The sheet's published size. `behavior` is 'automatic' | 'exactly' | 'range' (measured 20260803
+ * on Tableau Public: 'exactly' carries identical minSize/maxSize; 'automatic' carries no sizes).
+ */
+export type TableauSheetSize = {
+  behavior?: string;
+  minSize?: { width?: number; height?: number };
+  maxSize?: { width?: number; height?: number };
+};
+
 /** A dashboard activeSheet carries `worksheets`; a worksheet activeSheet does not. */
-export type TableauSheet = TableauWorksheet & { worksheets?: TableauWorksheet[] };
+export type TableauSheet = TableauWorksheet & {
+  worksheets?: TableauWorksheet[];
+  size?: TableauSheetSize;
+};
 
 export type TableauParameter = {
   name?: string;

@@ -171,7 +171,8 @@ function createVizServer(): McpServer {
           .max(3000)
           .optional()
           .describe(
-            "ウィジェット内コンテンツの高さ(px)。サイズ実測用。省略時はホストの枠いっぱい。",
+            "ウィジェットの高さ(px)の明示指定。通常は省略する — 省略時はダッシュボードの" +
+              "公開サイズから自動で高さが決まる。ユーザーが高さを明示的に希望した場合のみ指定する。",
           ),
       },
       outputSchema: { vizUrl: z.string(), heightPx: z.number().optional() },

@@ -34,6 +34,9 @@ if (viz === null) {
   let currentVizUrl: string | undefined;
   let currentHeightPx: number | undefined;
 
+  /** An explicit height (tool arg or restore) always beats the published-size auto height. */
+  let explicitHeight = false;
+
   const applyToolData = (data: ToolData): void => {
     // Height FIRST: `<tableau-viz>` sizes its internal iframe from the container at the moment
     // `src` is set and does not follow later container resizes (measured 20260803: src-then-height
@@ -41,10 +44,13 @@ if (viz === null) {
     // widget's content height, so this is what makes the card grow.
     let heightChanged = false;
 
-    if (data.heightPx !== undefined && wrap !== null && data.heightPx !== currentHeightPx) {
-      currentHeightPx = data.heightPx;
-      wrap.style.height = `${data.heightPx}px`;
-      heightChanged = true;
+    if (data.heightPx !== undefined) {
+      explicitHeight = true;
+      if (wrap !== null && data.heightPx !== currentHeightPx) {
+        currentHeightPx = data.heightPx;
+        wrap.style.height = `${data.heightPx}px`;
+        heightChanged = true;
+      }
     }
 
     if (data.vizUrl !== undefined) {
@@ -85,12 +91,58 @@ if (viz === null) {
     }
   };
 
+  // --- Auto height from the dashboard's published size --------------------------------------
+  // When nothing specified a height, size the widget to the sheet itself: 'exactly'/'range'
+  // publish a height (measured 20260803: exactly carries identical minSize/maxSize), 'automatic'
+  // adapts to whatever it is given, so the 100vh default stays. Clamped so one card cannot
+  // flood the conversation.
+  const TOOLBAR_HEIGHT_PX = 35;
+  const AUTO_HEIGHT_MIN_PX = 480;
+  const AUTO_HEIGHT_MAX_PX = 1200;
+
+  const computeAutoHeight = (): number | undefined => {
+    const size = viz.workbook?.activeSheet?.size;
+    if (size === undefined || size.behavior === "automatic") {
+      return undefined;
+    }
+
+    const published = size.maxSize?.height ?? size.minSize?.height;
+    if (typeof published !== "number" || !Number.isFinite(published) || published <= 0) {
+      return undefined;
+    }
+
+    return Math.min(
+      AUTO_HEIGHT_MAX_PX,
+      Math.max(AUTO_HEIGHT_MIN_PX, Math.round(published) + TOOLBAR_HEIGHT_PX),
+    );
+  };
+
+  const applyAutoHeight = (): void => {
+    if (explicitHeight || wrap === null) {
+      return;
+    }
+
+    const height = computeAutoHeight();
+    if (height !== undefined && height !== currentHeightPx) {
+      currentHeightPx = height;
+      wrap.style.height = `${height}px`;
+      syncVizFrameHeight();
+      setTimeout(syncVizFrameHeight, 250);
+    }
+  };
+
   // The iframe exists only after the viz renders; the window resize fires when the host grows
-  // the widget frame. Both are cheap, so sync on each plus a short settle delay.
-  viz.addEventListener("firstinteractive", () => {
+  // the widget frame. Both are cheap, so sync on each plus a short settle delay. Auto height
+  // runs at the same moments: `size` is readable once the viz is interactive, and a tab switch
+  // can land on a sheet with a different published size.
+  const handleVizReady = (): void => {
     syncVizFrameHeight();
+    applyAutoHeight();
     setTimeout(syncVizFrameHeight, 250);
-  });
+  };
+
+  viz.addEventListener("firstinteractive", handleVizReady);
+  viz.addEventListener("tabswitched", handleVizReady);
   window.addEventListener("resize", () => {
     setTimeout(syncVizFrameHeight, 0);
   });
