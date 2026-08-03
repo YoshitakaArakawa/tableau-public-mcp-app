@@ -1,20 +1,13 @@
 {
-  "name": "mcp-apps-iframe-probe",
+  "name": "tableau-public-mcp-app",
   "version": "0.1.0",
   "private": true,
-  "description": "Minimal MCP server that measures how far a host supports nested iframes in MCP Apps (SEP-1865)",
+  "description": "Minimal MCP Apps server that embeds a Tableau Public viz",
   "license": "MIT",
   "type": "module",
-  "bin": {
-    "mcp-apps-iframe-probe": "dist/index.js"
-  },
-  "files": [
-    "dist"
-  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "dev:stdio": "tsx src/index.ts --transport stdio",
-    "dev:http": "tsx src/index.ts --transport http --port 3000",
+    "dev": "tsx src/index.ts",
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

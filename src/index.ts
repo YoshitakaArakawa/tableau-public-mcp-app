@@ -1,142 +1,178 @@
 #!/usr/bin/env node
+/**
+ * tableau-public-mcp-app — a minimal MCP Apps server that embeds a Tableau
+ * Public viz.
+ *
+ * One tool (`show_viz`), one resource: a full-viewport iframe embedding the
+ * default Tableau Public sample viz. No diagnostics, no parameters. Metadata is
+ * declared in both dialects so the widget renders on SEP-1865 hosts (Claude,
+ * MCPJam) and on ChatGPT (Apps SDK), which treats `_meta.ui.*` as preferred and
+ * `openai/*` keys as legacy aliases.
+ *
+ * HTTP-only: this server exists to be reachable from web hosts.
+ */
 import { randomUUID } from "node:crypto";
 
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import cors from "cors";
 import express from "express";
 
-import { SERVER_NAME, SERVER_VERSION, createServer } from "./server.js";
+const APP_NAME = "tableau-public-mcp-app";
+const APP_VERSION = "0.1.0";
 
-interface Options {
-  transport: "stdio" | "http";
-  port: number;
-  host: string;
-}
+const VIZ_ORIGIN = "https://public.tableau.com";
+const VIZ_URL = `${VIZ_ORIGIN}/views/DeveloperSuperstore/Overview`;
+const EMBED_URL = `${VIZ_URL}?:embed=true&:showVizHome=no`;
+const RESOURCE_URI = "ui://tableau-public/viz.html";
+const MIME_TYPE = "text/html;profile=mcp-app";
 
-function parseArgs(argv: string[]): Options {
-  const options: Options = {
-    transport: "stdio",
-    port: Number(process.env.PORT ?? 3000),
-    host: process.env.HOST ?? "0.0.0.0",
-  };
+const HTML = `<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tableau Public viz</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: #f6f5f0; }
+  .wrap { display: flex; flex-direction: column; height: 100vh; min-height: 480px; }
+  iframe { flex: 1 1 auto; width: 100%; border: 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <iframe src="${EMBED_URL}" title="Tableau Public viz"></iframe>
+</div>
+</body>
+</html>
+`;
 
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    if (arg === "--transport") {
-      const value = argv[++i];
-      if (value !== "stdio" && value !== "http") {
-        throw new Error(`--transport must be "stdio" or "http" (got ${value})`);
-      }
-      options.transport = value;
-    } else if (arg === "--port") {
-      options.port = Number(argv[++i]);
-    } else if (arg === "--host") {
-      options.host = String(argv[++i]);
-    } else if (arg === "--help" || arg === "-h") {
-      console.log(
-        [
-          `${SERVER_NAME} ${SERVER_VERSION}`,
-          "",
-          "  --transport stdio        run over stdio (default)",
-          "  --transport http         run Streamable HTTP on /mcp",
-          "  --port <n>               HTTP port (default: $PORT or 3000)",
-          "  --host <addr>            HTTP bind address (default: $HOST or 0.0.0.0)",
-        ].join("\n"),
-      );
-      process.exit(0);
-    }
-  }
+/** Both dialects, declared side by side. Hosts read whichever they understand. */
+const RESOURCE_META = {
+  ui: {
+    csp: {
+      frameDomains: [VIZ_ORIGIN],
+      resourceDomains: [VIZ_ORIGIN],
+    },
+    prefersBorder: false,
+  },
+  "openai/widgetDescription": "Tableau Public の viz をインラインで表示します。",
+  "openai/widgetPrefersBorder": false,
+  "openai/widgetCSP": {
+    connect_domains: [],
+    resource_domains: [VIZ_ORIGIN],
+    frame_domains: [VIZ_ORIGIN],
+  },
+};
 
-  if (!Number.isFinite(options.port)) throw new Error("--port must be a number");
-  return options;
-}
+function createVizServer(): McpServer {
+  const server = new McpServer(
+    { name: APP_NAME, version: APP_VERSION },
+    { capabilities: { tools: {}, resources: {} } },
+  );
 
-async function runStdio(): Promise<void> {
-  const server = createServer();
-  await server.connect(new StdioServerTransport());
-  console.error(`[${SERVER_NAME}] listening on stdio`);
-}
-
-async function runHttp(options: Options): Promise<void> {
-  const app = express();
-  app.use(express.json({ limit: "4mb" }));
-  app.use(
-    cors({
-      origin: true,
-      exposedHeaders: ["Mcp-Session-Id"],
-      allowedHeaders: ["Content-Type", "Accept", "Mcp-Session-Id", "MCP-Protocol-Version"],
+  server.registerResource(
+    "Tableau Public viz",
+    RESOURCE_URI,
+    {
+      description: "Tableau Public のサンプル viz を全面表示するウィジェット",
+      mimeType: MIME_TYPE,
+      _meta: RESOURCE_META,
+    },
+    async () => ({
+      contents: [
+        { uri: RESOURCE_URI, mimeType: MIME_TYPE, text: HTML, _meta: RESOURCE_META },
+      ],
     }),
   );
 
-  // One server instance per session. Session state matters here: capability
-  // negotiation happens once at initialize, and a stateless transport would drop it.
-  const sessions = new Map<string, StreamableHTTPServerTransport>();
+  server.registerTool(
+    "show_viz",
+    {
+      title: "Show Tableau Public viz",
+      description:
+        "Tableau Public のサンプル viz（Developer Superstore）をインラインのウィジェットとして表示する。",
+      _meta: {
+        ui: { resourceUri: RESOURCE_URI, visibility: ["model", "app"] },
+        "openai/outputTemplate": RESOURCE_URI,
+        "openai/toolInvocation/invoking": "viz を読み込んでいます",
+        "openai/toolInvocation/invoked": "viz を表示しました",
+      },
+    },
+    async () => ({
+      content: [
+        { type: "text", text: `Tableau Public の viz を表示します: ${VIZ_URL}` },
+      ],
+    }),
+  );
 
-  app.get("/health", (_req, res) => {
-    res.json({ name: SERVER_NAME, version: SERVER_VERSION, sessions: sessions.size });
-  });
+  return server;
+}
 
-  app.all("/mcp", async (req, res) => {
-    try {
-      const sessionId = req.header("mcp-session-id");
-      let transport = sessionId ? sessions.get(sessionId) : undefined;
+const port = Number(process.env.PORT ?? 3000);
+const host = process.env.HOST ?? "0.0.0.0";
 
-      if (!transport) {
-        if (req.method !== "POST" || !isInitializeRequest(req.body)) {
-          res.status(400).json({
-            jsonrpc: "2.0",
-            error: { code: -32000, message: "No valid session. Send an initialize request first." },
-            id: null,
-          });
-          return;
-        }
+const app = express();
+app.use(express.json({ limit: "1mb" }));
+app.use(
+  cors({
+    origin: true,
+    exposedHeaders: ["Mcp-Session-Id"],
+    allowedHeaders: ["Content-Type", "Accept", "Mcp-Session-Id", "MCP-Protocol-Version"],
+  }),
+);
 
-        transport = new StreamableHTTPServerTransport({
-          sessionIdGenerator: () => randomUUID(),
-          onsessioninitialized: (id) => {
-            sessions.set(id, transport!);
-            console.error(`[${SERVER_NAME}] session opened: ${id}`);
-          },
-          onsessionclosed: (id) => {
-            sessions.delete(id);
-            console.error(`[${SERVER_NAME}] session closed: ${id}`);
-          },
-        });
-        transport.onclose = () => {
-          if (transport?.sessionId) sessions.delete(transport.sessionId);
-        };
+const sessions = new Map<string, StreamableHTTPServerTransport>();
 
-        await createServer().connect(transport);
-      }
+app.get("/health", (_req, res) => {
+  res.json({ name: APP_NAME, version: APP_VERSION, sessions: sessions.size });
+});
 
-      await transport.handleRequest(req, res, req.body);
-    } catch (error) {
-      console.error(`[${SERVER_NAME}] request failed:`, error);
-      if (!res.headersSent) {
-        res.status(500).json({
+app.all("/mcp", async (req, res) => {
+  try {
+    const sessionId = req.header("mcp-session-id");
+    let transport = sessionId ? sessions.get(sessionId) : undefined;
+
+    if (!transport) {
+      if (req.method !== "POST" || !isInitializeRequest(req.body)) {
+        res.status(400).json({
           jsonrpc: "2.0",
-          error: { code: -32603, message: "Internal server error" },
+          error: { code: -32000, message: "No valid session. Send an initialize request first." },
           id: null,
         });
+        return;
       }
+
+      transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => randomUUID(),
+        onsessioninitialized: (id) => {
+          sessions.set(id, transport!);
+        },
+        onsessionclosed: (id) => {
+          sessions.delete(id);
+        },
+      });
+      transport.onclose = () => {
+        if (transport?.sessionId) sessions.delete(transport.sessionId);
+      };
+
+      await createVizServer().connect(transport);
     }
-  });
 
-  await new Promise<void>((resolve) => {
-    app.listen(options.port, options.host, () => {
-      console.error(
-        `[${SERVER_NAME}] listening on http://${options.host}:${options.port}/mcp`,
-      );
-      resolve();
-    });
-  });
-}
+    await transport.handleRequest(req, res, req.body);
+  } catch (error) {
+    console.error(`[${APP_NAME}] request failed:`, error);
+    if (!res.headersSent) {
+      res.status(500).json({
+        jsonrpc: "2.0",
+        error: { code: -32603, message: "Internal server error" },
+        id: null,
+      });
+    }
+  }
+});
 
-const options = parseArgs(process.argv.slice(2));
-if (options.transport === "stdio") {
-  await runStdio();
-} else {
-  await runHttp(options);
-}
+app.listen(port, host, () => {
+  console.error(`[${APP_NAME}] listening on http://${host}:${port}/mcp`);
+});
