@@ -1,5 +1,7 @@
 # tableau-public-mcp-app: シンプルな viz 埋め込みサーバー（ChatGPT 等の Web ホスト向け）
-# デプロイ: fly deploy -c fly.viz.toml
+# デプロイ: fly deploy -c fly.viz.toml --ha=false
+#   --ha=false 必須。セッションがメモリ保持なので、マシンが2台あると
+#   initialize と後続リクエストが別マシンに散って 400 になる。
 app = "tableau-public-mcp-app"
 primary_region = "nrt"
 
