@@ -84,9 +84,14 @@ if (viz === null) {
 
     const iframe = viz.shadowRoot?.querySelector("iframe");
     if (iframe instanceof HTMLIFrameElement) {
-      const target = Math.round(wrap.getBoundingClientRect().height);
-      if (target > 0 && Math.abs(iframe.getBoundingClientRect().height - target) > 1) {
-        iframe.style.height = `${target}px`;
+      const rect = wrap.getBoundingClientRect();
+      const targetH = Math.round(rect.height);
+      const targetW = Math.round(rect.width);
+      if (targetH > 0 && Math.abs(iframe.getBoundingClientRect().height - targetH) > 1) {
+        iframe.style.height = `${targetH}px`;
+      }
+      if (targetW > 0 && Math.abs(iframe.getBoundingClientRect().width - targetW) > 1) {
+        iframe.style.width = `${targetW}px`;
       }
     }
   };
@@ -117,15 +122,50 @@ if (viz === null) {
     );
   };
 
-  const applyAutoHeight = (): void => {
-    if (explicitHeight || wrap === null) {
+  /**
+   * Published width, when the sheet has one and it is narrower than the frame. Whether the host
+   * shrinks the CARD to a narrower content width is unknown (height tracking is measured, width
+   * is not) — worst case this centers the viz instead of leaving a one-sided gutter.
+   */
+  const computeAutoWidth = (): number | undefined => {
+    const size = viz.workbook?.activeSheet?.size;
+    if (size === undefined || size.behavior === "automatic") {
+      return undefined;
+    }
+
+    const published = size.maxSize?.width ?? size.minSize?.width;
+    if (typeof published !== "number" || !Number.isFinite(published) || published <= 0) {
+      return undefined;
+    }
+
+    const available = document.documentElement.clientWidth;
+    return published < available ? Math.round(published) : undefined;
+  };
+
+  const applyAutoSize = (): void => {
+    if (wrap === null) {
       return;
     }
 
-    const height = computeAutoHeight();
-    if (height !== undefined && height !== currentHeightPx) {
-      currentHeightPx = height;
-      wrap.style.height = `${height}px`;
+    let changed = false;
+
+    if (!explicitHeight) {
+      const height = computeAutoHeight();
+      if (height !== undefined && height !== currentHeightPx) {
+        currentHeightPx = height;
+        wrap.style.height = `${height}px`;
+        changed = true;
+      }
+    }
+
+    const width = computeAutoWidth();
+    if (width !== undefined) {
+      wrap.style.width = `${width}px`;
+      wrap.style.margin = "0 auto";
+      changed = true;
+    }
+
+    if (changed) {
       syncVizFrameHeight();
       setTimeout(syncVizFrameHeight, 250);
     }
@@ -137,7 +177,7 @@ if (viz === null) {
   // can land on a sheet with a different published size.
   const handleVizReady = (): void => {
     syncVizFrameHeight();
-    applyAutoHeight();
+    applyAutoSize();
     setTimeout(syncVizFrameHeight, 250);
   };
 
