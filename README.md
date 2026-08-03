@@ -13,6 +13,18 @@ Tableau Public の viz をチャット内にインライン表示し、**ユー�
 - 挙動: イベントを 2 秒 debounce して1回のキャプチャに集約。Embedding API 呼び出しは直列 + タイムアウト付き（ハングした postMessage チャネルは再起不能のため）。バイト予算に収まるまで段階的に間引く
 - 実装は [src/view/](src/view/) 配下。キャプチャパイプラインは tableau-mcp-eas-auth フォークの vizState モジュールの移植（Tableau Public 向けに datasource 参照を削除）
 
+## サイズ実測(ChatGPT、20260803)
+
+`show_viz` の `height` 引数(px、実測用)とウィジェット内の診断オーバーレイ(viewport・`window.openai` のサイズシグナル・fullscreen 要求ボタン)で計測した結果:
+
+- インラインカードのウィジェット幅は **~768px で一定**。ブラウザ窓幅を変えても変わらない(会話カラム幅に張り付く)
+- カードの高さは**ウィジェットのコンテンツ高に 1:1 で追従**する。既定 480px は「コンテンツが `100vh` で枠を埋める」場合の平衡値で、コンテンツを 1200px / 3000px にするとカードもそのまま 1200 / 3000px になった(上限は未到達)
+- `window.openai` には `notifyIntrinsicHeight` / `notifyIntrinsicWidth` / `requestDisplayMode` があり、`maxHeight` / `maxWidth` キーは存在するが inline 時は未配信(undefined)だった
+- `requestDisplayMode({mode:"fullscreen"})` は許可され、viewport 767×480 → 1354×934 に拡大。固定サイズのダッシュボードは fullscreen でも元サイズのまま(余白が広がるだけ)
+- ChatGPT はツール定義(スキーマ)をコネクタ登録時にキャッシュし、再接続では更新しない。スキーマを変えたらコネクタの削除→新規作成が必要。ウィジェット HTML(リソース)は都度取得される
+
+ダッシュボード設計の目安: 幅 750px 以下の固定または「自動」サイズ。高さは自由だが、初期表示で見せたい範囲を 480px に収めるか、`height` 指定で伸ばす。
+
 メタデータは2方言を併記している。
 
 - 標準（SEP-1865）: `_meta.ui.resourceUri` / `_meta.ui.csp.frameDomains`

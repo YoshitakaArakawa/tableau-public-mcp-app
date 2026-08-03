@@ -94,7 +94,7 @@ const HTML = `<!DOCTYPE html>
 <script type="module" src="${EMBED_API_SCRIPT_URL}"></script>
 </head>
 <body>
-<div class="wrap">
+<div class="wrap" id="wrap">
   <!-- No initial src: the viz URL arrives from the tool result (structuredContent.vizUrl);
        preloading a default viz would flash an unrelated dashboard and cost a double load. -->
   <tableau-viz id="viz" toolbar="bottom"></tableau-viz>
@@ -165,8 +165,17 @@ function createVizServer(): McpServer {
             'Tableau Public の viz。"WorkbookName/ViewName" 形式、' +
               `または ${VIZ_ORIGIN}/views/... の完全 URL。省略可。`,
           ),
+        height: z
+          .number()
+          .int()
+          .min(240)
+          .max(3000)
+          .optional()
+          .describe(
+            "ウィジェット内コンテンツの高さ(px)。サイズ実測用。省略時はホストの枠いっぱい。",
+          ),
       },
-      outputSchema: { vizUrl: z.string() },
+      outputSchema: { vizUrl: z.string(), heightPx: z.number().optional() },
       _meta: {
         ui: { resourceUri: RESOURCE_URI, visibility: ["model", "app"] },
         "openai/outputTemplate": RESOURCE_URI,
@@ -174,7 +183,7 @@ function createVizServer(): McpServer {
         "openai/toolInvocation/invoked": "viz を表示しました",
       },
     },
-    async ({ path }) => {
+    async ({ path, height }) => {
       let vizUrl: string;
       try {
         vizUrl = resolveVizUrl(path);
@@ -194,7 +203,7 @@ function createVizServer(): McpServer {
               "ユーザーが viz を操作すると状態スナップショットが共有されます。",
           },
         ],
-        structuredContent: { vizUrl },
+        structuredContent: { vizUrl, ...(height !== undefined && { heightPx: height }) },
       };
     },
   );

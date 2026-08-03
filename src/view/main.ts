@@ -6,8 +6,9 @@
  * lazy channel below buffers the latest payload until a real channel exists — latest-wins, because
  * every push is a complete snapshot and an older one has no value.
  */
+import { startDiagnostics } from "./diagnostics.js";
 import type { TableauVizElement } from "./embeddingApiTypes.js";
-import { connectHost, type HostChannel } from "./hostBridge.js";
+import { connectHost, type HostChannel, type ToolData } from "./hostBridge.js";
 import type { VizStatePayload } from "./payload.js";
 import { startVizStateBridge } from "./vizStateBridge.js";
 
@@ -17,9 +18,6 @@ type AppConfig = { name?: string; version?: string; defaultVizUrl?: string };
 /** Only Tableau Public view URLs are ever loaded, no matter what a tool result claims. */
 const VIZ_URL_PREFIX = "https://public.tableau.com/views/";
 
-const config: AppConfig =
-  (window as { __APP_CONFIG?: AppConfig }).__APP_CONFIG ?? {};
-
 /**
  * Grace period after the host handshake settles before falling back to the default viz. A host
  * that has a URL for us normally delivers it with (or before) the handshake; the fallback exists
@@ -27,7 +25,11 @@ const config: AppConfig =
  */
 const VIZ_URL_FALLBACK_DELAY_MS = 3_000;
 
+const config: AppConfig =
+  (window as { __APP_CONFIG?: AppConfig }).__APP_CONFIG ?? {};
+
 const viz = document.getElementById("viz") as TableauVizElement | null;
+const wrap = document.getElementById("wrap");
 
 if (viz === null) {
   console.error("[tableau-public-mcp-app] no #viz element in the widget HTML");
@@ -37,19 +39,23 @@ if (viz === null) {
   // arrives from the host (or the fallback below gives up waiting).
   let currentVizUrl: string | undefined;
 
-  const applyVizUrl = (url: string): void => {
-    if (!url.startsWith(VIZ_URL_PREFIX)) {
-      console.warn("[tableau-public-mcp-app] ignoring non-Tableau-Public viz url", url);
-      return;
-    }
-    if (url === currentVizUrl) {
-      return;
+  const applyToolData = (data: ToolData): void => {
+    if (data.vizUrl !== undefined) {
+      if (!data.vizUrl.startsWith(VIZ_URL_PREFIX)) {
+        console.warn("[tableau-public-mcp-app] ignoring non-Tableau-Public viz url", data.vizUrl);
+      } else if (data.vizUrl !== currentVizUrl) {
+        currentVizUrl = data.vizUrl;
+        // The custom element observes `src`; swapping it reloads the viz and re-fires
+        // `firstinteractive`, which the bridge treats as a fresh capture trigger.
+        viz.setAttribute("src", data.vizUrl);
+      }
     }
 
-    currentVizUrl = url;
-    // The custom element observes `src`; swapping it reloads the viz and re-fires
-    // `firstinteractive`, which the bridge treats as a fresh capture trigger.
-    viz.setAttribute("src", url);
+    // Size experiment: an explicit height replaces the fill-the-frame default, to measure whether
+    // the host grows the widget frame to content or clips/scrolls it.
+    if (data.heightPx !== undefined && wrap !== null) {
+      wrap.style.height = `${data.heightPx}px`;
+    }
   };
 
   // Latest-wins buffer for pushes that happen before the host channel resolves.
@@ -78,10 +84,12 @@ if (viz === null) {
     },
   });
 
+  startDiagnostics(() => resolvedHost);
+
   void connectHost({
     appName: config.name ?? "tableau-public-mcp-app",
     appVersion: config.version ?? "0.0.0",
-    onVizUrl: applyVizUrl,
+    onToolData: applyToolData,
   }).then(async (host) => {
     resolvedHost = host;
     console.info(`[tableau-public-mcp-app] host channel: ${host.kind}`);
@@ -90,7 +98,7 @@ if (viz === null) {
     if (currentVizUrl === undefined && config.defaultVizUrl !== undefined) {
       setTimeout(() => {
         if (currentVizUrl === undefined && config.defaultVizUrl !== undefined) {
-          applyVizUrl(config.defaultVizUrl);
+          applyToolData({ vizUrl: config.defaultVizUrl });
         }
       }, VIZ_URL_FALLBACK_DELAY_MS);
     }

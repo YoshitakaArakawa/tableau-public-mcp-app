@@ -42,13 +42,18 @@ export type HostChannel = {
   kind: "ext-apps" | "openai" | "none";
   /** Sends a complete snapshot to the host, replacing the previous one. Never throws. */
   pushState: (payload: VizStatePayload) => Promise<void>;
+  /** Asks the host to switch display mode (e.g. 'fullscreen'). Resolves with the host's answer. */
+  requestDisplayMode?: (mode: string) => Promise<unknown>;
 };
+
+/** What a tool result carries for the widget, in either dialect. */
+export type ToolData = { vizUrl?: string; heightPx?: number };
 
 export type ConnectHostOptions = {
   appName: string;
   appVersion: string;
-  /** Called whenever the host delivers a tool result naming a viz URL. May fire more than once. */
-  onVizUrl: (url: string) => void;
+  /** Called whenever the host delivers a tool result with widget data. May fire more than once. */
+  onToolData: (data: ToolData) => void;
   connectTimeoutMs?: number;
 };
 
@@ -56,16 +61,26 @@ export type ConnectHostOptions = {
 type OpenAiGlobal = {
   toolOutput?: unknown;
   setWidgetState?: (state: unknown) => Promise<void> | void;
+  requestDisplayMode?: (args: { mode: string }) => Promise<unknown>;
 };
 
-/** Reads `structuredContent.vizUrl` (SEP-1865 tool result) or `toolOutput.vizUrl` (ChatGPT). */
-function readVizUrl(container: unknown): string | undefined {
+/** Reads `structuredContent` (SEP-1865 tool result) or `toolOutput` (ChatGPT). */
+function readToolData(container: unknown): ToolData | undefined {
   if (typeof container !== "object" || container === null) {
     return undefined;
   }
 
-  const url = (container as { vizUrl?: unknown }).vizUrl;
-  return typeof url === "string" && url.length > 0 ? url : undefined;
+  const { vizUrl, heightPx } = container as { vizUrl?: unknown; heightPx?: unknown };
+  const data: ToolData = {};
+
+  if (typeof vizUrl === "string" && vizUrl.length > 0) {
+    data.vizUrl = vizUrl;
+  }
+  if (typeof heightPx === "number" && Number.isFinite(heightPx) && heightPx > 0) {
+    data.heightPx = heightPx;
+  }
+
+  return data.vizUrl !== undefined || data.heightPx !== undefined ? data : undefined;
 }
 
 /**
@@ -83,16 +98,16 @@ export async function connectHost(options: ConnectHostOptions): Promise<HostChan
 }
 
 function connectOpenAi(openai: OpenAiGlobal, options: ConnectHostOptions): HostChannel {
-  const initialUrl = readVizUrl(openai.toolOutput);
-  if (initialUrl !== undefined) {
-    options.onVizUrl(initialUrl);
+  const initialData = readToolData(openai.toolOutput);
+  if (initialData !== undefined) {
+    options.onToolData(initialData);
   }
 
   // ChatGPT re-injects globals (including a late toolOutput) through this window event.
   window.addEventListener("openai:set_globals", () => {
-    const url = readVizUrl(openai.toolOutput);
-    if (url !== undefined) {
-      options.onVizUrl(url);
+    const data = readToolData(openai.toolOutput);
+    if (data !== undefined) {
+      options.onToolData(data);
     }
   });
 
@@ -109,6 +124,7 @@ function connectOpenAi(openai: OpenAiGlobal, options: ConnectHostOptions): HostC
         console.error("[tableau-public-mcp-app] setWidgetState failed", error);
       }
     },
+    requestDisplayMode: async (mode) => openai.requestDisplayMode?.({ mode }),
   };
 }
 
@@ -116,9 +132,9 @@ async function connectExtApps(options: ConnectHostOptions): Promise<HostChannel>
   const app = new App({ name: options.appName, version: options.appVersion });
 
   app.ontoolresult = (result) => {
-    const url = readVizUrl((result as { structuredContent?: unknown }).structuredContent);
-    if (url !== undefined) {
-      options.onVizUrl(url);
+    const data = readToolData((result as { structuredContent?: unknown }).structuredContent);
+    if (data !== undefined) {
+      options.onToolData(data);
     }
   };
 
@@ -156,5 +172,7 @@ async function connectExtApps(options: ConnectHostOptions): Promise<HostChannel>
         console.error("[tableau-public-mcp-app] updateModelContext failed", error);
       }
     },
+    requestDisplayMode: async (mode) =>
+      app.requestDisplayMode({ mode: mode as "fullscreen" | "inline" | "pip" }),
   };
 }
