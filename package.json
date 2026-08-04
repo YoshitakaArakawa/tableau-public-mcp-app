@@ -2,7 +2,7 @@
   "name": "tableau-public-mcp-app",
   "version": "0.3.0",
   "private": true,
-  "description": "Minimal MCP Apps server that embeds a Tableau Public viz",
+  "description": "MCP Apps server that embeds a Tableau Public viz in chat and shares the user's interaction state back to the model",
   "license": "MIT",
   "type": "module",
   "scripts": {
