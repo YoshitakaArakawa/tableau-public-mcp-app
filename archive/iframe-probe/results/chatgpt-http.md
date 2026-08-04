@@ -1,7 +1,7 @@
 # ChatGPT (Plus, Web) / Streamable HTTP
 
 計測対象はプローブ4種ではなく、シンプル版サーバー `tableau-public-mcp-app`（`show_viz` 1本）。
-接続先: `https://tableau-public-mcp-app.fly.dev/mcp`（Fly.io、認証なし、開発者モードのカスタムコネクタ）
+接続先: `https://<ホスト>/mcp`（PaaS 上に単一インスタンスでデプロイ、認証なし、開発者モードのカスタムコネクタ）
 
 ## 環境
 
