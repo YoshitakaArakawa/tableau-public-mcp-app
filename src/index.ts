@@ -12,11 +12,8 @@
  *
  * HTTP-only: this server exists to be reachable from web hosts.
  */
-import { randomUUID } from "node:crypto";
-
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import cors from "cors";
 import express from "express";
 import { z } from "zod";
@@ -24,7 +21,7 @@ import { z } from "zod";
 import { VIEW_BUNDLE_JS } from "./generated/viewBundle.js";
 
 const APP_NAME = "tableau-public-mcp-app";
-const APP_VERSION = "0.2.0";
+const APP_VERSION = "0.3.0";
 
 const VIZ_ORIGIN = "https://public.tableau.com";
 const EMBED_API_SCRIPT_URL = `${VIZ_ORIGIN}/javascripts/api/tableau.embedding.3.latest.min.js`;
@@ -219,15 +216,14 @@ app.use(express.json({ limit: "1mb" }));
 app.use(
   cors({
     origin: true,
-    exposedHeaders: ["Mcp-Session-Id"],
+    // Mcp-Session-Id stays allowed (not exposed — we never issue one) so a client that
+    // sends it anyway is not rejected at the CORS preflight.
     allowedHeaders: ["Content-Type", "Accept", "Mcp-Session-Id", "MCP-Protocol-Version"],
   }),
 );
 
-const sessions = new Map<string, StreamableHTTPServerTransport>();
-
 app.get("/health", (_req, res) => {
-  res.json({ name: APP_NAME, version: APP_VERSION, sessions: sessions.size });
+  res.json({ name: APP_NAME, version: APP_VERSION });
 });
 
 /** The widget HTML, served directly for standalone verification in a plain browser tab. */
@@ -235,37 +231,23 @@ app.get("/widget", (_req, res) => {
   res.type("text/html").send(HTML);
 });
 
-app.all("/mcp", async (req, res) => {
+/**
+ * Stateless: a fresh server + transport pair per request, discarded when the response closes.
+ * No session id is issued, so any instance behind a load balancer can serve any request. The
+ * server has no server-to-client traffic to lose — tool calls and resource reads are pure
+ * request/response, and the viz state snapshots travel inside the host (widget→host bridge),
+ * never through this transport.
+ */
+app.post("/mcp", async (req, res) => {
+  const server = createVizServer();
+  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+  res.on("close", () => {
+    void transport.close();
+    void server.close();
+  });
+
   try {
-    const sessionId = req.header("mcp-session-id");
-    let transport = sessionId ? sessions.get(sessionId) : undefined;
-
-    if (!transport) {
-      if (req.method !== "POST" || !isInitializeRequest(req.body)) {
-        res.status(400).json({
-          jsonrpc: "2.0",
-          error: { code: -32000, message: "No valid session. Send an initialize request first." },
-          id: null,
-        });
-        return;
-      }
-
-      transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: () => randomUUID(),
-        onsessioninitialized: (id) => {
-          sessions.set(id, transport!);
-        },
-        onsessionclosed: (id) => {
-          sessions.delete(id);
-        },
-      });
-      transport.onclose = () => {
-        if (transport?.sessionId) sessions.delete(transport.sessionId);
-      };
-
-      await createVizServer().connect(transport);
-    }
-
+    await server.connect(transport);
     await transport.handleRequest(req, res, req.body);
   } catch (error) {
     console.error(`[${APP_NAME}] request failed:`, error);
@@ -277,6 +259,23 @@ app.all("/mcp", async (req, res) => {
       });
     }
   }
+});
+
+/**
+ * With no sessions there is no SSE notification stream to offer (GET) and no session to
+ * terminate (DELETE). 405 is the response the Streamable HTTP spec prescribes for both.
+ * Blocking GET here matters: the SDK's stateless transport would otherwise open a standalone
+ * SSE stream that nothing ever writes to or closes.
+ */
+app.all("/mcp", (_req, res) => {
+  res
+    .status(405)
+    .set("Allow", "POST")
+    .json({
+      jsonrpc: "2.0",
+      error: { code: -32000, message: "Method not allowed." },
+      id: null,
+    });
 });
 
 app.listen(port, host, () => {

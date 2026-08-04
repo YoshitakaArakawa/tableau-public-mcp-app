@@ -1,6 +1,6 @@
 {
   "name": "tableau-public-mcp-app",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "description": "Minimal MCP Apps server that embeds a Tableau Public viz",
   "license": "MIT",
